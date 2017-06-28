@@ -5,6 +5,8 @@ plugins {
     id "org.standardout.versioneye" version "1.1.0"
 }
 
+ext.targetJavaVersion = JavaVersion.current().isJava7() ? JavaVersion.VERSION_1_7 : JavaVersion.VERSION_1_8
+
 // Grab all the common stuff like plugins to use, artifact repositories, code analysis config, etc
 apply from: "$rootDir/config/gradle/artifactory.gradle"
 
@@ -78,6 +80,18 @@ configurations {
 
     // Beyond the standard compile "configuration" we declare one called "devCompile" specific to the "dev" source set
     devCompile.extendsFrom compile
+
+    if (targetJavaVersion.isJava7()) {
+        checkerFrameworkJavac {
+            description = 'a customization of the OpenJDK javac compiler with additional support for type annotations'
+        }
+    }
+    checkerFrameworkAnnotatedJDK {
+       description = 'a copy of JDK classes with Checker Framework type qualifers inserted'
+    }
+    checkerFramework {
+       description = 'The Checker Framework: custom pluggable types for Java'
+    }
 }
 
 // TODO: Remove when we don't need to rely on snapshots. Wonder why modules respected this set in root project, engine not so much
@@ -151,6 +165,45 @@ dependencies {
     } else {
         println "*** Setting a CrashReporter binary dependency, not present as source"
         compile group: 'org.terasology.crashreporter', name: 'cr-terasology', version: '4.0.1'
+    }
+
+    // ext.checkerFrameworkVersion = '2.1.12'
+    // ext.jdkVersion = JavaVersion.current().isJava7() ? 'jdk7' : 'jdk8'
+    // checkerFrameworkAnnotatedJDK "org.checkerframework:${jdkVersion}:${checkerFrameworkVersion}"
+
+    // if (targetJavaVersion.isJava7()) {
+    //     checkerFrameworkJavac "org.checkerframework:compiler:${checkerFrameworkVersion}"
+    // }
+    // checkerFramework "org.checkerframework:checker:${checkerFrameworkVersion}"
+    // compile "org.checkerframework:checker-qual:${checkerFrameworkVersion}"
+
+    ext.checkerframeworkdist = "$System.env.CHECKERFRAMEWORK/checker/dist"
+    ext.jdkVersion = JavaVersion.current().isJava7() ? 'jdk7' : 'jdk8'
+    checkerFrameworkAnnotatedJDK fileTree(dir: "${checkerframeworkdist}", include: "${jdkVersion}.jar")
+    if (targetJavaVersion.isJava7()) {
+      checkerFrameworkJavac fileTree(dir: "${checkerframeworkdist}", include: 'javac.jar')
+    }
+    checkerFramework fileTree(dir: "${checkerframeworkdist}", include: 'checker.jar')
+    compile fileTree(dir: "${checkerframeworkdist}", include: 'checker-qual.jar')
+}
+
+allprojects {
+    tasks.withType(JavaCompile).all { JavaCompile compile ->
+        compile.options.compilerArgs = [
+                // '-processor', 'org.checkerframework.checker.nullness.NullnessChecker',
+                '-processor', 'org.checkerframework.checker.optional.OptionalChecker',
+                '-processorpath', "${configurations.checkerFramework.asPath}",
+             '-AsuppressWarnings=nullness,keyfor',
+             '-Xmaxerrs', '10000',
+             // uncomment to turn Checker Framework errors into warnings
+             // '-Awarns', '-Xmaxwarns', '10000',
+                "-Xbootclasspath/p:${configurations.checkerFrameworkAnnotatedJDK.asPath}"
+        ]
+        if (targetJavaVersion.isJava7()) {
+            compile.options.compilerArgs += ['-source', '7', '-target', '7']
+            options.fork = true
+            options.forkOptions.jvmArgs += ["-Xbootclasspath/p:${configurations.checkerFrameworkJavac.asPath}"]
+        }
     }
 }
 
